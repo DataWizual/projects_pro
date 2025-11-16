@@ -1,0 +1,16 @@
+global:
+  scrape_interval: 5s
+
+scrape_configs:
+
+  # ----- Flask application metrics -----
+  - job_name: 'flask'
+    static_configs:
+      - targets: ['web:5000']
+        labels:
+          group: 'application'
+
+  # ----- Prometheus self-monitoring -----
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
