@@ -12,30 +12,45 @@ jobs:
       - name: Checkout PR branch
         uses: actions/checkout@v3
 
-      # -----------------------------
-      # Python: flake8
-      # -----------------------------
+      # Install linters
       - name: Install Python linters
         run: |
-          pip install flake8 bandit codespell reviewdog
+          pip install flake8 bandit codespell
 
+      - name: Install yamllint
+        run: sudo apt-get install -y yamllint
+
+      - name: Install shellcheck
+        run: sudo apt-get install -y shellcheck
+
+      # Install reviewdog
+      - name: Install reviewdog
+        run: |
+          curl -sfL https://raw.githubusercontent.com/reviewdog/reviewdog/master/install.sh \
+            | sh -s -- -b /usr/local/bin
+
+      # -----------------------------
+      # flake8
+      # -----------------------------
       - name: Run flake8
         run: |
-          flake8 . | reviewdog -f=flake8 -name="flake8" -reporter=github-pr-review -fail-on-error=false
+          flake8 . \
+          | reviewdog -f=flake8 -name="flake8" -reporter=github-pr-review -fail-on-error=false
         env:
           REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # -----------------------------
-      # Python Security: bandit
+      # bandit (security)
       # -----------------------------
-      - name: Run bandit (security)
+      - name: Run bandit
         run: |
-          bandit -r . -f json | reviewdog -f=bandit -name="bandit" -reporter=github-pr-review -fail-on-error=false
+          bandit -r . -f txt \
+          | reviewdog -efm="%f:%l: %m" -name="bandit" -reporter=github-pr-review -fail-on-error=false
         env:
           REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # -----------------------------
-      # Dockerfile: hadolint
+      # hadolint (Dockerfile)
       # -----------------------------
       - name: Install hadolint
         run: |
@@ -44,17 +59,14 @@ jobs:
 
       - name: Run hadolint
         run: |
-          hadolint $(git ls-files '*.Dockerfile' 'Dockerfile' './app/Dockerfile') \
+          hadolint $(git ls-files '*Dockerfile' 'Dockerfile' './app/Dockerfile') \
           | reviewdog -f=hadolint -name="hadolint" -reporter=github-pr-review -fail-on-error=false
         env:
           REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # -----------------------------
-      # Shell scripts: shellcheck
+      # shellcheck
       # -----------------------------
-      - name: Install shellcheck
-        run: sudo apt-get install -y shellcheck
-
       - name: Run shellcheck
         run: |
           shellcheck $(git ls-files '*.sh') \
@@ -63,22 +75,21 @@ jobs:
           REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # -----------------------------
-      # YAML: yamllint
+      # yamllint
       # -----------------------------
-      - name: Install yamllint
-        run: sudo apt-get install -y yamllint
-
       - name: Run yamllint
         run: |
-          yamllint . | reviewdog -f=yamllint -name="yamllint" -reporter=github-pr-review -fail-on-error=false
+          yamllint . \
+          | reviewdog -f=yamllint -name="yamllint" -reporter=github-pr-review -fail-on-error=false
         env:
           REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # -----------------------------
-      # Spell check: codespell
+      # codespell
       # -----------------------------
       - name: Run codespell
         run: |
-          codespell . | reviewdog -efm="%f:%l: %m" -name="codespell" -reporter=github-pr-review -fail-on-error=false
+          codespell . \
+          | reviewdog -efm="%f:%l: %m" -name="codespell" -reporter=github-pr-review -fail-on-error=false
         env:
           REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
