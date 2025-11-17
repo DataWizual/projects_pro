@@ -1,4 +1,4 @@
-name: 🤖 AI Review (Free DevOps Code Review)
+name: 🤖 AI Review (Unified Free Code Review)
 
 on:
   pull_request:
@@ -9,18 +9,12 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout PR branch
+      - name: Checkout
         uses: actions/checkout@v3
 
-      # ---------------------------------------------------
-      # Install dependencies and reviewdog
-      # ---------------------------------------------------
-      - name: Install Python linters
+      - name: Install linters
         run: |
           pip install flake8 bandit codespell
-
-      - name: Install system linters
-        run: |
           sudo apt-get update
           sudo apt-get install -y yamllint shellcheck
 
@@ -29,93 +23,79 @@ jobs:
           curl -sfL https://raw.githubusercontent.com/reviewdog/reviewdog/master/install.sh \
             | sh -s -- -b /usr/local/bin
 
-      # ---------------------------------------------------
-      # Python: flake8
-      # ---------------------------------------------------
-      - name: flake8 review
-        run: |
-          flake8 . \
-            | reviewdog -f=flake8 -name="flake8" -reporter=github-pr-review -fail-on-error=false
-        env:
-          REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      # ---------------------------------------------------
-      # Python Security: bandit
-      # ---------------------------------------------------
-      - name: bandit security review
-        run: |
-          bandit -r . -f txt \
-            | reviewdog -efm="%f:%l: %m" -name="bandit" -reporter=github-pr-review -fail-on-error=false
-        env:
-          REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      # ---------------------------------------------------
-      # Dockerfile: hadolint
-      # ---------------------------------------------------
       - name: Install hadolint
         run: |
           wget -O /usr/local/bin/hadolint \
             https://github.com/hadolint/hadolint/releases/download/v2.12.0/hadolint-Linux-x86_64
           chmod +x /usr/local/bin/hadolint
 
+
+      # --------------------------------------------------
+      # Unified flake8
+      # --------------------------------------------------
+      - name: flake8 review
+        run: |
+          flake8 . \
+            | sed 's/: /:1: /' \
+            | reviewdog -efm="%f:%l:%c: %m" -name="flake8" -reporter=github-pr-review -fail-on-error=false
+        env: { REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }} }
+
+
+      # --------------------------------------------------
+      # Unified bandit
+      # --------------------------------------------------
+      - name: bandit review
+        run: |
+          bandit -r . -f txt \
+            | sed -E 's/^(.+):([0-9]+) (.+)$/\1:\2:1: \3/' \
+            | reviewdog -efm="%f:%l:%c: %m" -name="bandit" -reporter=github-pr-review -fail-on-error=false
+        env: { REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }} }
+
+
+      # --------------------------------------------------
+      # Unified hadolint
+      # --------------------------------------------------
       - name: hadolint review
         run: |
           files=$(git ls-files '*Dockerfile' 'Dockerfile' 'app/Dockerfile' || true)
-
-          if [ -z "$files" ]; then
-            echo "No Dockerfile found — skipping hadolint"
-            exit 0
-          fi
+          if [ -z "$files" ]; then exit 0; fi
 
           hadolint $files \
-            | awk -F: '
-                {
-                    file=$1; line=$2;
-                    $1=""; $2="";
-                    sub(/^:+/, "");
-                    msg=$0;
-                    print file ":" line ": " msg
-                }
-              ' \
-            | reviewdog -efm="%f:%l: %m" -name="hadolint" -reporter=github-pr-review -fail-on-error=false
+            | sed -E 's/^(.+):([0-9]+):([0-9]+): (.+)$/\1:\2:\3: \4/' \
+            | reviewdog -efm="%f:%l:%c: %m" -name="hadolint" -reporter=github-pr-review -fail-on-error=false
+        env: { REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }} }
 
-        env:
-          REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # ---------------------------------------------------
-      # Shell scripts: shellcheck
-      # ---------------------------------------------------
+      # --------------------------------------------------
+      # Unified shellcheck
+      # --------------------------------------------------
       - name: shellcheck review
         run: |
           files=$(git ls-files '*.sh' || true)
+          if [ -z "$files" ]; then exit 0; fi
 
-          if [ -z "$files" ]; then
-            echo "No shell scripts found — skipping shellcheck"
-            exit 0
-          fi
+          shellcheck -f gcc $files \
+            | reviewdog -f=gcc -name="shellcheck" -reporter=github-pr-review -fail-on-error=false
+        env: { REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }} }
 
-          shellcheck $files \
-            | reviewdog -f=shellcheck -name="shellcheck" -reporter=github-pr-review -fail-on-error=false
 
-        env:
-          REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      # ---------------------------------------------------
-      # YAML: yamllint
-      # ---------------------------------------------------
+      # --------------------------------------------------
+      # Unified yamllint
+      # --------------------------------------------------
       - name: yamllint review
         run: |
-          yamllint . \
-            | reviewdog -f=yamllint -name="yamllint" -reporter=github-pr-review -fail-on-error=false
-        env:
-          REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          yamllint -f parsable . \
+            | sed -E 's/^(.+):([0-9]+):([0-9]+): \[(.+)\] (.+)$/\1:\2:\3: \4 - \5/' \
+            | reviewdog -efm="%f:%l:%c: %m" -name="yamllint" -reporter=github-pr-review -fail-on-error=false
+        env: { REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }} }
 
-      # ---------------------------------------------------
-      # Spell check: codespell
-      # ---------------------------------------------------
+
+      # --------------------------------------------------
+      # Unified codespell
+      # --------------------------------------------------
       - name: codespell review
         run: |
           codespell . \
-            | reviewdog -efm="%f:%l: %m" -name="codespell" -reporter=github-pr-review -fail-on-error=false
-        env:
-          REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+            | sed -E 's/^(.*):([0-9]+): (.*)$/\1:\2:1: \3/' \
+            | reviewdog -efm="%f:%l:%c: %m" -name="codespell" -reporter=github-pr-review -fail-on-error=false
+        env: { REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }} }
