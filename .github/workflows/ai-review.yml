@@ -1,4 +1,4 @@
-name: 🤖 AI Review (Free Code Review)
+name: 🤖 AI Review (Free DevOps Code Review)
 
 on:
   pull_request:
@@ -12,84 +12,110 @@ jobs:
       - name: Checkout PR branch
         uses: actions/checkout@v3
 
-      # Install linters
+      # ---------------------------------------------------
+      # Install dependencies and reviewdog
+      # ---------------------------------------------------
       - name: Install Python linters
         run: |
           pip install flake8 bandit codespell
 
-      - name: Install yamllint
-        run: sudo apt-get install -y yamllint
+      - name: Install system linters
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y yamllint shellcheck
 
-      - name: Install shellcheck
-        run: sudo apt-get install -y shellcheck
-
-      # Install reviewdog
       - name: Install reviewdog
         run: |
           curl -sfL https://raw.githubusercontent.com/reviewdog/reviewdog/master/install.sh \
             | sh -s -- -b /usr/local/bin
 
-      # -----------------------------
-      # flake8
-      # -----------------------------
-      - name: Run flake8
+      # ---------------------------------------------------
+      # Python: flake8
+      # ---------------------------------------------------
+      - name: flake8 review
         run: |
           flake8 . \
-          | reviewdog -f=flake8 -name="flake8" -reporter=github-pr-review -fail-on-error=false
+            | reviewdog -f=flake8 -name="flake8" -reporter=github-pr-review -fail-on-error=false
         env:
           REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # -----------------------------
-      # bandit (security)
-      # -----------------------------
-      - name: Run bandit
+      # ---------------------------------------------------
+      # Python Security: bandit
+      # ---------------------------------------------------
+      - name: bandit security review
         run: |
           bandit -r . -f txt \
-          | reviewdog -efm="%f:%l: %m" -name="bandit" -reporter=github-pr-review -fail-on-error=false
+            | reviewdog -efm="%f:%l: %m" -name="bandit" -reporter=github-pr-review -fail-on-error=false
         env:
           REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # -----------------------------
-      # hadolint (Dockerfile)
-      # -----------------------------
+      # ---------------------------------------------------
+      # Dockerfile: hadolint
+      # ---------------------------------------------------
       - name: Install hadolint
         run: |
-          wget -O /usr/local/bin/hadolint https://github.com/hadolint/hadolint/releases/download/v2.12.0/hadolint-Linux-x86_64
+          wget -O /usr/local/bin/hadolint \
+            https://github.com/hadolint/hadolint/releases/download/v2.12.0/hadolint-Linux-x86_64
           chmod +x /usr/local/bin/hadolint
 
-      - name: Run hadolint
+      - name: hadolint review
         run: |
-          hadolint $(git ls-files '*Dockerfile' 'Dockerfile' './app/Dockerfile') \
-          | reviewdog -f=hadolint -name="hadolint" -reporter=github-pr-review -fail-on-error=false
+          files=$(git ls-files '*Dockerfile' 'Dockerfile' 'app/Dockerfile' || true)
+
+          if [ -z "$files" ]; then
+            echo "No Dockerfile found — skipping hadolint"
+            exit 0
+          fi
+
+          hadolint $files \
+            | awk -F: '
+                {
+                    file=$1; line=$2;
+                    $1=""; $2="";
+                    sub(/^:+/, "");
+                    msg=$0;
+                    print file ":" line ": " msg
+                }
+              ' \
+            | reviewdog -efm="%f:%l: %m" -name="hadolint" -reporter=github-pr-review -fail-on-error=false
+
         env:
           REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # -----------------------------
-      # shellcheck
-      # -----------------------------
-      - name: Run shellcheck
+      # ---------------------------------------------------
+      # Shell scripts: shellcheck
+      # ---------------------------------------------------
+      - name: shellcheck review
         run: |
-          shellcheck $(git ls-files '*.sh') \
-          | reviewdog -f=shellcheck -name="shellcheck" -reporter=github-pr-review -fail-on-error=false
+          files=$(git ls-files '*.sh' || true)
+
+          if [ -z "$files" ]; then
+            echo "No shell scripts found — skipping shellcheck"
+            exit 0
+          fi
+
+          shellcheck $files \
+            | reviewdog -f=shellcheck -name="shellcheck" -reporter=github-pr-review -fail-on-error=false
+
         env:
           REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # -----------------------------
-      # yamllint
-      # -----------------------------
-      - name: Run yamllint
+      # ---------------------------------------------------
+      # YAML: yamllint
+      # ---------------------------------------------------
+      - name: yamllint review
         run: |
           yamllint . \
-          | reviewdog -f=yamllint -name="yamllint" -reporter=github-pr-review -fail-on-error=false
+            | reviewdog -f=yamllint -name="yamllint" -reporter=github-pr-review -fail-on-error=false
         env:
           REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # -----------------------------
-      # codespell
-      # -----------------------------
-      - name: Run codespell
+      # ---------------------------------------------------
+      # Spell check: codespell
+      # ---------------------------------------------------
+      - name: codespell review
         run: |
           codespell . \
-          | reviewdog -efm="%f:%l: %m" -name="codespell" -reporter=github-pr-review -fail-on-error=false
+            | reviewdog -efm="%f:%l: %m" -name="codespell" -reporter=github-pr-review -fail-on-error=false
         env:
           REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
