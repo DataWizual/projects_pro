@@ -78,9 +78,11 @@ jobs:
           if [ -z "$files" ]; then exit 0; fi
 
           shellcheck -f gcc $files \
-            | reviewdog -f=gcc -name="shellcheck" -reporter=github-pr-review -fail-on-error=false
+            | sed -E 's/^(.+):([0-9]+):([0-9]+): (.+)$/\1:\2:\3: \4/' \
+            | reviewdog -efm="%f:%l:%c: %m" -name="shellcheck" -reporter=github-pr-review -fail-on-error=false
         env:
           REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
 
 
       # --------------------------------------------------
