@@ -51,7 +51,6 @@ This project is designed for both **learning DevOps** and **selling clones on ma
                 │     + Grafana Dashboards│
                 └─────────────────────────┘
 
-<span style="color: red;">1.</span>
 ## 📁 Folder Structure
 ```text
 projects_pro/
