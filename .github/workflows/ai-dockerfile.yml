@@ -1,0 +1,88 @@
+name: AI Dockerfile Assistant
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "app/Dockerfile"
+  push:
+    paths:
+      - "app/Dockerfile"
+
+jobs:
+  generate-ai-dockerfile:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Read original Dockerfile
+        id: read_file
+        run: |
+          echo "content<<EOF" >> $GITHUB_OUTPUT
+          cat app/Dockerfile >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Generate improved Dockerfile with Copilot
+        id: copilot_gen
+        uses: github/copilot-actions/generate@v1
+        with:
+          prompt: |
+            You are an expert DevOps engineer.
+            Review the following Dockerfile and generate an improved,
+            production-ready version optimized for Python and Flask.
+
+            Output ONLY the improved Dockerfile.
+
+            Original Dockerfile:
+            ```
+            ${{ steps.read_file.outputs.content }}
+            ```
+          max-tokens: 2048
+
+      - name: Save AI Dockerfile
+        run: |
+          echo "${{ steps.copilot_gen.outputs.generated_text }}" > app/Dockerfile.ai
+
+      # --- A) DIFF ---
+      - name: Show diff (original vs AI)
+        id: diff
+        run: |
+          echo "### Dockerfile Diff" >> diff.md
+          echo "\`\`\`diff" >> diff.md
+          diff -u app/Dockerfile app/Dockerfile.ai >> diff.md || true
+          echo "\`\`\`" >> diff.md
+          cat diff.md
+
+      # --- B & C) PR COMMENT (analysis + diff) ---
+      - name: Create PR Comment with analysis + diff
+        if: ${{ github.event_name == 'pull_request' }}
+        uses: github/copilot-actions/review@v1
+        with:
+          comment: |
+            ## 🤖 AI Dockerfile Review
+
+            ### 🔍 Summary
+            The AI has generated an improved version of your Dockerfile (`app/Dockerfile.ai`)
+            and performed an automatic self-review.
+
+            Below is the diff between your original Dockerfile and the AI-generated version.
+
+            ---
+            ${{ steps.diff.outputs.chat_output }}
+            ---
+            
+            ### 🧠 Suggestions
+            Please review the proposed improvements and consider merging changes manually
+            if they align with your development direction.
+
+      # fallback: if diff is needed also on push
+      - name: Show analysis as workflow summary
+        run: |
+          echo "## AI Dockerfile Review" >> $GITHUB_STEP_SUMMARY
+          echo "### Diff" >> $GITHUB_STEP_SUMMARY
+          cat diff.md >> $GITHUB_STEP_SUMMARY

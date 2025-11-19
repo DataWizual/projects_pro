@@ -1,0 +1,76 @@
+name: AI Dockerfile CI Review
+
+on:
+  workflow_run:
+    workflows: ["CI"]          # название твоего основного CI workflow
+    types:
+      - completed
+
+jobs:
+  ai_review:
+    if: ${{ github.event.workflow_run.conclusion == 'failure' }}
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download CI logs
+        uses: actions/download-artifact@v4
+        with:
+          name: ci-logs
+          path: ./ci_logs
+
+      - name: Read logs
+        id: logs
+        run: |
+          echo "content<<EOF" >> $GITHUB_OUTPUT
+          cat ./ci_logs/*.txt >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Run Copilot AI on CI errors
+        id: ai_fix
+        uses: github/copilot-actions/generate@v1
+        with:
+          prompt: |
+            You are an expert DevOps engineer and Dockerfile specialist.
+            Below are CI build logs that include fatal errors.
+
+            Analyze the logs and:
+            - explain the root cause,
+            - identify which instruction in Dockerfile is wrong,
+            - propose a corrected new Dockerfile version.
+
+            Output ONLY a new corrected Dockerfile.
+
+            CI Logs:
+            ```
+            ${{ steps.logs.outputs.content }}
+            ```
+          max-tokens: 2048
+
+      - name: Save proposed fix
+        run: |
+          echo "${{ steps.ai_fix.outputs.generated_text }}" > app/Dockerfile.fix
+
+      - name: Show proposed fix
+        run: cat app/Dockerfile.fix
+
+      - name: Comment on PR with fix
+        if: ${{ github.event.workflow_run.event == 'pull_request' }}
+        uses: github/copilot-actions/review@v1
+        with:
+          comment: |
+            ## ❗ CI Failed — AI Proposed Fix  
+            
+            The CI run failed, and the AI reviewed the CI logs.
+
+            ### 📄 Proposed Fixed Dockerfile (saved as `app/Dockerfile.fix`):
+            ```
+            ${{ steps.ai_fix.outputs.generated_text }}
+            ```
+
+            You may review this file and manually apply changes.
