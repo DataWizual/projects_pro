@@ -3,8 +3,8 @@ name: AI Dockerfile Assistant (HF)
 on:
   workflow_dispatch:
   pull_request:
-    paths:
-      - "app/Dockerfile"
+#    paths:
+#      - "app/Dockerfile"
 
 jobs:
   ai_dockerfile:
