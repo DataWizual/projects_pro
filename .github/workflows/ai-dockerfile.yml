@@ -67,6 +67,16 @@ jobs:
         run: |
           echo "${{ steps.hf_call.outputs.text }}" > app/Dockerfile.ai
           cat app/Dockerfile.ai
+          
+      - name: Commit Dockerfile.ai to PR
+        if: ${{ github.event_name == 'pull_request' }}
+        run: |
+          git config --global user.name "github-actions"
+          git config --global user.email "github-actions@github.com"
+
+          git add app/Dockerfile.ai
+          git commit -m "AI: Add improved Dockerfile.ai"
+          git push
 
       - name: Generate diff
         run: |
