@@ -24,10 +24,8 @@ jobs:
       - name: Generate improved Dockerfile with HuggingFace Inference API
         id: hf_call
         run: |
-          # HuggingFace NEW endpoint
           HF_ENDPOINT="https://router.huggingface.co/hf-inference/models/Qwen/Qwen2.5-7B-Instruct"
 
-          # Make request
           curl -s \
             -X POST "$HF_ENDPOINT" \
             -H "Authorization: Bearer $HF_TOKEN" \
@@ -40,7 +38,6 @@ jobs:
           echo "Raw HF response:"
           cat ai_output.json
 
-          # Try to extract generated_text (unified HF schema)
           AI_TEXT=$(jq -r '
             .generated_text? // 
             (.[0]?.generated_text?) // 
@@ -61,13 +58,11 @@ jobs:
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
 
-
-
       - name: Save AI-generated Dockerfile
         run: |
           echo "${{ steps.hf_call.outputs.text }}" > app/Dockerfile.ai
           cat app/Dockerfile.ai
-          
+
       - name: Commit Dockerfile.ai to PR
         if: ${{ github.event_name == 'pull_request' }}
         run: |
@@ -75,8 +70,8 @@ jobs:
           git config --global user.email "github-actions@github.com"
 
           git add app/Dockerfile.ai
-          git commit -m "AI: Add improved Dockerfile.ai"
-          git push
+          git commit -m "AI: Add improved Dockerfile.ai" || echo "No changes to commit"
+          git push || echo "No push required"
 
       - name: Generate diff
         run: |
@@ -97,16 +92,15 @@ jobs:
 
             ### 🔍 Diff:
             $(cat diff.md)
-       
-       - name: Check if AI changed something
-         run: |
-            if diff -q app/Dockerfile app/Dockerfile.ai >/dev/null; then
-              echo "No improvements needed. Your Dockerfile is optimal."
-              echo "ai_message=No improvements needed. Original is best." >> $GITHUB_OUTPUT
-            else
-              echo "AI generated improvements."
-              echo "ai_message=AI generated improvements. Review diff." >> $GITHUB_OUTPUT
-            fi
-            
-       - name: Summary
-         run: echo "${{ steps.check.outputs.ai_message }}" >> $GITHUB_STEP_SUMMARY
+
+      - name: Check if AI changed something
+        id: check
+        run: |
+          if diff -q app/Dockerfile app/Dockerfile.ai >/dev/null; then
+            echo "ai_message=No improvements needed. Your Dockerfile is optimal." >> $GITHUB_OUTPUT
+          else
+            echo "ai_message=AI generated improvements. Review diff." >> $GITHUB_OUTPUT
+          fi
+
+      - name: Summary
+        run: echo "${{ steps.check.outputs.ai_message }}" >> $GITHUB_STEP_SUMMARY
