@@ -97,3 +97,16 @@ jobs:
 
             ### 🔍 Diff:
             $(cat diff.md)
+       
+       - name: Check if AI changed something
+         run: |
+            if diff -q app/Dockerfile app/Dockerfile.ai >/dev/null; then
+              echo "No improvements needed. Your Dockerfile is optimal."
+              echo "ai_message=No improvements needed. Original is best." >> $GITHUB_OUTPUT
+            else
+              echo "AI generated improvements."
+              echo "ai_message=AI generated improvements. Review diff." >> $GITHUB_OUTPUT
+            fi
+            
+       - name: Summary
+         run: echo "${{ steps.check.outputs.ai_message }}" >> $GITHUB_STEP_SUMMARY
