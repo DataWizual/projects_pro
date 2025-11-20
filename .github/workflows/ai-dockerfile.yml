@@ -1,88 +1,70 @@
-name: AI Dockerfile Assistant
+name: AI Dockerfile Assistant (HF)
 
 on:
   workflow_dispatch:
   pull_request:
     paths:
       - "app/Dockerfile"
-  push:
-    paths:
-      - "app/Dockerfile"
 
 jobs:
-  generate-ai-dockerfile:
+  ai_dockerfile:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      pull-requests: write
 
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Read original Dockerfile
-        id: read_file
+      - name: Read Dockerfile
+        id: readfile
         run: |
           echo "content<<EOF" >> $GITHUB_OUTPUT
           cat app/Dockerfile >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
-      - name: Generate improved Dockerfile with Copilot
-        id: copilot_gen
-        uses: github/copilot-actions/generate@v1
-        with:
-          prompt: |
-            You are an expert DevOps engineer.
-            Review the following Dockerfile and generate an improved,
-            production-ready version optimized for Python and Flask.
-
-            Output ONLY the improved Dockerfile.
-
-            Original Dockerfile:
-            ```
-            ${{ steps.read_file.outputs.content }}
-            ```
-          max-tokens: 2048
-
-      - name: Save AI Dockerfile
+      - name: Generate improved Dockerfile with HuggingFace Inference API
+        id: hf_call
         run: |
-          echo "${{ steps.copilot_gen.outputs.generated_text }}" > app/Dockerfile.ai
+          RESPONSE=$(curl -s \
+            -X POST "https://api-inference.huggingface.co/models/Qwen/Qwen2.5-7B-Instruct" \
+            -H "Authorization: Bearer $HF_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"inputs\": \"You are an expert DevOps engineer. Improve this Dockerfile for production. Output ONLY the improved Dockerfile with no explanations:\\n${{ steps.readfile.outputs.content }}\"
+            }")
 
-      # --- A) DIFF ---
-      - name: Show diff (original vs AI)
-        id: diff
+          echo "$RESPONSE" > ai_output.json
+
+          # Extract text
+          AI_TEXT=$(jq -r '.[0].generated_text // "ERROR: No output returned"' ai_output.json)
+
+          echo "text<<EOF" >> $GITHUB_OUTPUT
+          echo "$AI_TEXT" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+
+      - name: Save AI-generated Dockerfile
         run: |
-          echo "### Dockerfile Diff" >> diff.md
+          echo "${{ steps.hf_call.outputs.text }}" > app/Dockerfile.ai
+          cat app/Dockerfile.ai
+
+      - name: Generate diff
+        run: |
+          echo "### DIFF" > diff.md
           echo "\`\`\`diff" >> diff.md
           diff -u app/Dockerfile app/Dockerfile.ai >> diff.md || true
           echo "\`\`\`" >> diff.md
           cat diff.md
 
-      # --- B & C) PR COMMENT (analysis + diff) ---
-      - name: Create PR Comment with analysis + diff
+      - name: Attach diff to PR (if PR)
         if: ${{ github.event_name == 'pull_request' }}
-        uses: github/copilot-actions/review@v1
+        uses: marocchino/sticky-pull-request-comment@v2
         with:
-          comment: |
-            ## 🤖 AI Dockerfile Review
+          header: ai-dockerfile-review
+          message: |
+            ## 🤖 AI Review: Improved Dockerfile
+            AI generated an improved version: **app/Dockerfile.ai**
 
-            ### 🔍 Summary
-            The AI has generated an improved version of your Dockerfile (`app/Dockerfile.ai`)
-            and performed an automatic self-review.
-
-            Below is the diff between your original Dockerfile and the AI-generated version.
-
-            ---
-            ${{ steps.diff.outputs.chat_output }}
-            ---
-            
-            ### 🧠 Suggestions
-            Please review the proposed improvements and consider merging changes manually
-            if they align with your development direction.
-
-      # fallback: if diff is needed also on push
-      - name: Show analysis as workflow summary
-        run: |
-          echo "## AI Dockerfile Review" >> $GITHUB_STEP_SUMMARY
-          echo "### Diff" >> $GITHUB_STEP_SUMMARY
-          cat diff.md >> $GITHUB_STEP_SUMMARY
+            ### 🔍 Diff:
+            $(cat diff.md)
