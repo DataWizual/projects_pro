@@ -3,8 +3,8 @@ name: AI Dockerfile Assistant (HF)
 on:
   workflow_dispatch:
   pull_request:
-    paths:
-      - "app/Dockerfile"
+#    paths:
+#      - "app/Dockerfile"
 
 jobs:
   ai_dockerfile:
@@ -23,42 +23,70 @@ jobs:
           cat app/Dockerfile >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
-      - name: Generate improved Dockerfile with HuggingFace Inference API
+      - name: Generate improved Dockerfile with HuggingFace (robust)
         id: hf_call
         run: |
           HF_ENDPOINT="https://router.huggingface.co/hf-inference/models/Qwen/Qwen2.5-7B-Instruct"
 
-          curl -s \
-            -X POST "$HF_ENDPOINT" \
-            -H "Authorization: Bearer $HF_TOKEN" \
-            -H "Content-Type: application/json" \
-            -d "{
-              \"inputs\": \"You are an expert DevOps engineer. Improve this Dockerfile for production. Output ONLY the improved Dockerfile with no explanations:\\n${{ steps.readfile.outputs.content }}\"
-            }" \
-            > ai_output.json
+          attempt=1
+          MAX_ATTEMPTS=3
+          AI_TEXT=""
 
-          echo "Raw HF response:"
-          cat ai_output.json
+          echo "Attempting HuggingFace request..."
 
-          AI_TEXT=$(jq -r '
-            .generated_text? // 
-            (.[0]?.generated_text?) // 
-            .message? // 
-            .error? // 
-            empty
-          ' ai_output.json)
+          while [ $attempt -le $MAX_ATTEMPTS ]; do
+            echo "🔁 Attempt $attempt of $MAX_ATTEMPTS"
 
+            RESPONSE=$(curl -s \
+              -X POST "$HF_ENDPOINT" \
+              -H "Authorization: Bearer $HF_TOKEN" \
+              -H "Content-Type: application/json" \
+              -d "{
+                \"inputs\": \"You are an expert DevOps engineer. Improve this Dockerfile for production. Output ONLY the improved Dockerfile with no explanations:\\n${{ steps.readfile.outputs.content }}\"
+              }")
+
+            echo "$RESPONSE" > ai_output.json
+            echo "Raw HF response:"
+            cat ai_output.json
+
+            # ---- 1️⃣ Проверяем: JSON ли это вообще ----
+            if jq empty ai_output.json 2>/dev/null; then
+                echo "JSON is valid."
+
+                # ---- 2️⃣ Пытаемся извлечь generated_text ----
+                AI_TEXT=$(jq -r '
+                  .generated_text? // 
+                  (.[0]?.generated_text?) //
+                  .message? //
+                  empty
+                ' ai_output.json)
+
+                if [ ! -z "$AI_TEXT" ]; then
+                    echo "Success: extracted generated_text."
+                    break
+                else
+                    echo "Valid JSON but no generated_text. Trying again..."
+                fi
+            else
+                echo "Invalid JSON received. Retrying..."
+            fi
+
+            attempt=$((attempt+1))
+            sleep 2
+          done
+
+          # ---- 3️⃣ Если не получилось даже после 3 попыток ----
           if [ -z "$AI_TEXT" ]; then
-            echo "No generated_text found. Using raw JSON as fallback."
-            AI_TEXT=$(cat ai_output.json)
+            echo "AI could not generate valid output."
+            AI_TEXT="ERROR: HuggingFace model did not return generated_text after 3 attempts."
           fi
 
           echo "text<<EOF" >> $GITHUB_OUTPUT
           echo "$AI_TEXT" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
-
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
+
 
       - name: Save AI-generated Dockerfile
         run: |
@@ -68,12 +96,17 @@ jobs:
       - name: Commit Dockerfile.ai to PR
         if: ${{ github.event_name == 'pull_request' }}
         run: |
-          git config --global user.name "github-actions"
-          git config --global user.email "github-actions@github.com"
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Ensure we are on the PR branch
+          git fetch origin ${{ github.head_ref }}
+          git checkout ${{ github.head_ref }}
 
           git add app/Dockerfile.ai
-          git commit -m "AI: Add improved Dockerfile.ai" || echo "No changes to commit"
-          git push || echo "No push required"
+          git commit -m "AI: Add improved Dockerfile.ai" || echo "Nothing to commit"
+          git push origin HEAD:${{ github.head_ref }} || echo "Push failed"
+
 
       - name: Generate diff
         run: |
