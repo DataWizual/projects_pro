@@ -24,18 +24,26 @@ jobs:
       - name: Generate improved Dockerfile with HuggingFace Inference API
         id: hf_call
         run: |
-          RESPONSE=$(curl -s \
+          # Запрос к API
+          curl -s \
             -X POST "https://api-inference.huggingface.co/models/Qwen/Qwen2.5-7B-Instruct" \
             -H "Authorization: Bearer $HF_TOKEN" \
             -H "Content-Type: application/json" \
             -d "{
               \"inputs\": \"You are an expert DevOps engineer. Improve this Dockerfile for production. Output ONLY the improved Dockerfile with no explanations:\\n${{ steps.readfile.outputs.content }}\"
-            }")
+            }" \
+            > ai_output.json
 
-          echo "$RESPONSE" > ai_output.json
+          echo "Raw HF response:"
+          cat ai_output.json
 
-          # Extract text
-          AI_TEXT=$(jq -r '.[0].generated_text // "ERROR: No output returned"' ai_output.json)
+          # Попытка извлечь generated_text
+          AI_TEXT=$(jq -r '.[]?.generated_text // empty' ai_output.json)
+
+          if [ -z "$AI_TEXT" ]; then
+            echo "HF returned no generated_text. Falling back to raw response."
+            AI_TEXT=$(cat ai_output.json)
+          fi
 
           echo "text<<EOF" >> $GITHUB_OUTPUT
           echo "$AI_TEXT" >> $GITHUB_OUTPUT
@@ -43,6 +51,7 @@ jobs:
 
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
+
 
       - name: Save AI-generated Dockerfile
         run: |
