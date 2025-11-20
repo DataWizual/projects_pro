@@ -24,9 +24,12 @@ jobs:
       - name: Generate improved Dockerfile with HuggingFace Inference API
         id: hf_call
         run: |
-          # Запрос к API
+          # HuggingFace NEW endpoint
+          HF_ENDPOINT="https://router.huggingface.co/hf-inference/models/Qwen/Qwen2.5-7B-Instruct"
+
+          # Make request
           curl -s \
-            -X POST "https://api-inference.huggingface.co/models/Qwen/Qwen2.5-7B-Instruct" \
+            -X POST "$HF_ENDPOINT" \
             -H "Authorization: Bearer $HF_TOKEN" \
             -H "Content-Type: application/json" \
             -d "{
@@ -37,11 +40,17 @@ jobs:
           echo "Raw HF response:"
           cat ai_output.json
 
-          # Попытка извлечь generated_text
-          AI_TEXT=$(jq -r '.[]?.generated_text // empty' ai_output.json)
+          # Try to extract generated_text (unified HF schema)
+          AI_TEXT=$(jq -r '
+            .generated_text? // 
+            (.[0]?.generated_text?) // 
+            .message? // 
+            .error? // 
+            empty
+          ' ai_output.json)
 
           if [ -z "$AI_TEXT" ]; then
-            echo "HF returned no generated_text. Falling back to raw response."
+            echo "No generated_text found. Using raw JSON as fallback."
             AI_TEXT=$(cat ai_output.json)
           fi
 
@@ -51,6 +60,7 @@ jobs:
 
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
+
 
 
       - name: Save AI-generated Dockerfile
