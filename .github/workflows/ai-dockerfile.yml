@@ -68,12 +68,17 @@ jobs:
       - name: Commit Dockerfile.ai to PR
         if: ${{ github.event_name == 'pull_request' }}
         run: |
-          git config --global user.name "github-actions"
-          git config --global user.email "github-actions@github.com"
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Ensure we are on the PR branch
+          git fetch origin ${{ github.head_ref }}
+          git checkout ${{ github.head_ref }}
 
           git add app/Dockerfile.ai
-          git commit -m "AI: Add improved Dockerfile.ai" || echo "No changes to commit"
-          git push || echo "No push required"
+          git commit -m "AI: Add improved Dockerfile.ai" || echo "Nothing to commit"
+          git push origin HEAD:${{ github.head_ref }} || echo "Push failed"
+
 
       - name: Generate diff
         run: |
